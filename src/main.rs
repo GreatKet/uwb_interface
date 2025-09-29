@@ -1,4 +1,5 @@
 mod enums;
+mod utils;
 
 use enums::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
@@ -63,6 +64,7 @@ async fn write_loop(
     cancel: CancellationToken,
 ) -> Result<(), ()> {
     println!("Initializing session");
+
     let sid: u32 = 42;
     let mut payload = Vec::with_capacity(5);
     payload.extend_from_slice(&sid.to_le_bytes());
@@ -75,7 +77,8 @@ async fn write_loop(
     } else {
         panic!("Not matching response")
     }
-    cancel.cancelled().await;
+
+    let config = cancel.cancelled().await;
     Ok(())
 }
 async fn parse_msg(header: [u8; 4], resp_tx: &mut Sender<Response>, payload: Vec<u8>) {
