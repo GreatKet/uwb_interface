@@ -2,6 +2,8 @@ use num_enum::TryFromPrimitive;
 
 pub enum Response {
     SessionInit([u8; 2]),
+    SessionConfigSet(u8),
+    RangingStarted(u16),
     Other,
 }
 #[repr(u8)]

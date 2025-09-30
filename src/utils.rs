@@ -1,10 +1,10 @@
-pub fn get_params_payload() {
+pub fn get_params_payload(handle: u8, dst_mac: u64) -> Vec<u8> {
     let params = [
-        (1u8, 0u8, 1usize), // (App.DeviceType, args.device),
-        (1, 0x11, 1),       // (App.DeviceRole, 0 if args.controlee else 1),
-        (1, 0x3, 0),        // (App.MultiNodeMode, args.node),
-        (1, 0x1, 2),        // (App.RangingRoundUsage, args.round),
-        (2, 0x6, 1),        // (App.DeviceMacAddress, args.mac),
+        (1u8, 0u8, 1u64), // (App.DeviceType, args.device),
+        (1, 0x11, 1),     // (App.DeviceRole, 0 if args.controlee else 1),
+        (1, 0x3, 0),      // (App.MultiNodeMode, args.node),
+        (1, 0x1, 2),      // (App.RangingRoundUsage, args.round),
+        (2, 0x6, 0),      // (App.DeviceMacAddress, args.mac),
         // # Additional config:
         (1, 0x4, 9),              // (App.ChannelNumber, args.channel),
         (1, 0x22, 1),             // (App.ScheduleMode, args.schedule),
@@ -24,5 +24,65 @@ pub fn get_params_payload() {
         (1, 0x2c, 0),             // (App.HoppingMode, args.hopping_mode),
         (1, 0x13, 0),             // (App.RssiReporting, 1 if args.en_rssi else 0),
         (1, 0x2d, 0),             // (App.BlockStrideLength, args.block_stride_length),
+        (1, 0x5, 1),              // NumberOfControlees
+        (2, 0x7, dst_mac),        // DstMacAddress
+        (1, 0x24, 0),             // KeyRotationRate
+        (1, 0x35, 1),             // StsLength
     ];
+    let mut payload = Vec::<u8>::new();
+    let sid: u32 = handle as u32;
+    payload.extend_from_slice(&sid.to_le_bytes());
+    payload.push(params.len() as u8);
+    for set in params {
+        payload.push(set.1);
+        payload.push(set.0);
+        let mut v = set.2;
+        for _ in 0..set.0 {
+            payload.push((v & 0xff) as u8);
+            v >>= 8;
+        }
+    }
+    // println!("{:?}", payload);
+    payload
+}
+#[derive(Debug)]
+pub struct Ranging {
+    pub n_meas: u8,
+    pub mac_add: u16,
+    pub status: u8,
+    pub nlos: bool,
+    pub distance_cm: f32,        // u16 LE, in cm
+    pub aoa_theta_deg: f32,      // Q8.7 -> i16 / 128.0
+    pub aoa_theta_fom: u8,       // %
+    pub aoa_phi_deg: f32,        // Q8.7
+    pub aoa_phi_fom: u8,         // %
+    pub aoa_dest_theta_deg: f32, // Q8.7
+    pub aoa_dest_theta_fom: u8,  // %
+    pub aoa_dest_phi_deg: f32,   // Q8.7
+    pub aoa_dest_phi_fom: u8,    // %
+    pub slot_in_error: u8,
+    pub rssi_dbm: f32, // Q7.1 (byte / 2, negated)
+}
+pub fn parse_ranging(full_payload: &[u8]) -> Ranging {
+    let i = 25;
+    let payload = &full_payload[i..i + 31];
+    let u16le = |lo: usize| -> u16 { u16::from_le_bytes([payload[lo], payload[lo + 1]]) };
+    let i16le = |lo: usize| -> i16 { i16::from_le_bytes([payload[lo], payload[lo + 1]]) };
+    Ranging {
+        n_meas: full_payload[0],
+        mac_add: u16::from_le_bytes(payload[0..2].try_into().unwrap()),
+        status: payload[2],
+        nlos: payload[3] != 0,
+        distance_cm: u16le(4) as f32,
+        aoa_theta_deg: i16le(6) as f32 / 128.0,
+        aoa_theta_fom: payload[8],
+        aoa_phi_deg: i16le(9) as f32 / 128.0,
+        aoa_phi_fom: payload[11],
+        aoa_dest_theta_deg: i16le(12) as f32 / 128.0,
+        aoa_dest_theta_fom: payload[14],
+        aoa_dest_phi_deg: i16le(15) as f32 / 128.0,
+        aoa_dest_phi_fom: payload[17],
+        slot_in_error: payload[18],
+        rssi_dbm: -(payload[19] as f32 / 2.0),
+    }
 }
