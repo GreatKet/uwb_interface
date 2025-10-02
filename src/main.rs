@@ -4,11 +4,22 @@ mod utils;
 use enums::*;
 use utils::*;
 
+use clap::Parser;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use tokio_util::sync::CancellationToken;
+
+#[derive(Parser)]
+struct CliArgs {
+    #[arg(short, long)]
+    port: String,
+
+    #[arg(short, long)]
+    controller: bool,
+}
 
 struct Frame {
     header: [u8; 4],
@@ -16,8 +27,10 @@ struct Frame {
 }
 #[tokio::main]
 async fn main() -> Result<(), ()> {
+    let args = CliArgs::parse();
+
     println!("Hello, world!");
-    let path = "/dev/ttyACM0";
+    let path = args.port;
     let port = tokio_serial::new(path, 115200).open_native_async().unwrap();
 
     let cancel = CancellationToken::new();
@@ -29,7 +42,7 @@ async fn main() -> Result<(), ()> {
     let (msg_tx, msg_rx) = mpsc::channel::<Frame>(10);
 
     let mut reader = tokio::spawn(read_loop(rx, msg_tx, read_cancel));
-    let mut writer = tokio::spawn(write_loop(tx, resp_rx, write_cancel));
+    let mut writer = tokio::spawn(write_loop(tx, resp_rx, write_cancel, args.controller));
     let _ = tokio::spawn(parser(msg_rx, resp_tx));
 
     tokio::select! {
@@ -71,6 +84,7 @@ async fn write_loop(
     mut tx: WriteHalf<SerialStream>,
     mut resp_rx: Receiver<Response>,
     cancel: CancellationToken,
+    is_controller: bool,
 ) -> Result<(), ()> {
     println!("Initializing session");
 
@@ -96,7 +110,7 @@ async fn write_loop(
         panic!("Not matching response")
     }
 
-    let config = get_params_payload(sh, 1);
+    let config = get_params_payload(sh, 1, is_controller);
     send_msg(
         &mut tx,
         Mt::Command,
